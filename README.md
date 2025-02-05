@@ -56,7 +56,7 @@ On Windows, you'll also need to run `windeployqt` to copy the necessary Qt depen
 (Adjust the path to `windeployqt.exe` and the executable as needed)
 
 ## Code Structure
-CPP_Codebase_Processor/
+```CPP_Codebase_Processor/
 ├── CMakeLists.txt               # Build configuration file
 ├── main.cpp                     # Application entry point
 ├── MainWindow                   # Main application window
@@ -90,7 +90,7 @@ FileProcessingWorker: Handles file processing in a background thread
 ProcessingDialog: Shows progress during file processing
 
 The build system uses CMake with Qt 6.8 and requires C++17, with separate batch scripts for debug and release builds on Windows.
-
+```
 ## Usage
 
 1. Launch the `codebase_processor` executable
@@ -110,3 +110,5 @@ Contributions are welcome! If you encounter any issues or have suggestions for i
 ## License
 
 This project is open-source and available under the [MIT License](LICENSE).
+
+#Note This written through a combination of hand-coding, Claude 3.5 Sonnet, and ChatGPT o1. After initial version was up and running, it was then run against itself and pushed back into AI to iteratively improve itself.
