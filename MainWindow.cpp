@@ -315,7 +315,7 @@ void MainWindow::startFileProcessing(bool toClipboard)
         } else {
             // Create a default filename
             QString defaultFileName = QFileInfo(currentPath).fileName() + "_processed.txt";
-            QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+            QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
             QString defaultFilePath = QDir(defaultPath).filePath(defaultFileName);
 
             QString savePath = QFileDialog::getSaveFileName(

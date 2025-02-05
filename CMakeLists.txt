@@ -21,7 +21,7 @@ find_package(Qt6 REQUIRED COMPONENTS
 )
 
 # List all our source files
-add_executable(codebase_processor
+add_executable(codebase_processor WIN32
     main.cpp
     MainWindow.cpp
     MainWindow.h
