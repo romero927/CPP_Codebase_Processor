@@ -110,3 +110,5 @@ Contributions are welcome! If you encounter any issues or have suggestions for i
 ## License
 
 This project is open-source and available under the [MIT License](LICENSE).
+
+#Note This written through a combination of hand-coding, Claude 3.5 Sonnet, and ChatGPT o1. After initial version was up and running, it was then run against itself and pushed back into AI to iteratively improve itself.
