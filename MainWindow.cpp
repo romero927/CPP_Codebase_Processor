@@ -141,12 +141,9 @@ void MainWindow::selectFolder()
                 QString fullPath = dir + QDir::separator() + fileName;
                 if (fileModel->shouldIncludeFile(fullPath)) {
                     selectedFiles.insert(fullPath);
-                    qDebug() << "Auto adding:" << fullPath;
                 }
             }
             
-            qDebug() << "Auto selected files:" << selectedFiles.size();
-
             // Programmatically select these files in the tree
             fileTreeView->selectionModel()->clearSelection();
             for (const QString &filePath : selectedFiles) {
