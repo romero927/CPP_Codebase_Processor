@@ -55,6 +55,42 @@ On Windows, you'll also need to run `windeployqt` to copy the necessary Qt depen
 ```
 (Adjust the path to `windeployqt.exe` and the executable as needed)
 
+## Code Structure
+CPP_Codebase_Processor/
+├── CMakeLists.txt               # Build configuration file
+├── main.cpp                     # Application entry point
+├── MainWindow                   # Main application window
+│   ├── MainWindow.h            # Main window header
+│   └── MainWindow.cpp          # Main window implementation
+├── FileProcessingWorker         # Background processing worker
+│   ├── FileProcessingWorker.h    
+│   └── FileProcessingWorker.cpp
+├── FileSystemModelWithGitIgnore # Custom file system model
+│   ├── FileSystemModelWithGitIgnore.h
+│   └── FileSystemModelWithGitIgnore.cpp
+├── ProcessingDialog            # Progress dialog
+│   ├── ProcessingDialog.h
+│   └── ProcessingDialog.cpp
+├── resources.qrc              # Qt resource file
+├── README.md                  # Documentation
+└── Build Scripts
+    ├── build_deploy_debug.bat    # Debug build script
+    └── build_deploy_release.bat  # Release build script
+
+Class Hierarchy:
+MainWindow (QMainWindow)
+├── FileSystemModelWithGitIgnore (QFileSystemModel)
+├── FileProcessingWorker (QObject)
+└── ProcessingDialog (QDialog)
+The application is structured around these main components:
+
+MainWindow: The main UI that handles file selection and user interaction
+FileSystemModelWithGitIgnore: Manages the file system view with .gitignore support
+FileProcessingWorker: Handles file processing in a background thread
+ProcessingDialog: Shows progress during file processing
+
+The build system uses CMake with Qt 6.8 and requires C++17, with separate batch scripts for debug and release builds on Windows.
+
 ## Usage
 
 1. Launch the `codebase_processor` executable

@@ -5,7 +5,8 @@
 #include <QRegularExpression>
 #include <QFileInfo>
 #include <QDebug>
-#include <QThread>  // Added for QThread::msleep
+#include <QThread>
+#include <QDir>
 
 FileProcessingWorker::FileProcessingWorker(
     const QString& path, 
@@ -21,6 +22,7 @@ FileProcessingWorker::FileProcessingWorker(
 
 void FileProcessingWorker::process() {
     QString result;
+    QDir baseDir(rootPath);
     
     // Filter out non-processable files first
     std::set<QString> processableFiles;
@@ -41,7 +43,10 @@ void FileProcessingWorker::process() {
         
         if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QByteArray content = file.readAll();
-            result += "=== " + filePath + " ===\n";
+            
+            // Get the relative path for output
+            QString relativePath = baseDir.relativeFilePath(filePath);
+            result += "=== " + relativePath + " ===\n";
             result += QString::fromUtf8(content);
             result += "\n\n";
             
