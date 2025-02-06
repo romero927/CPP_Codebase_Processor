@@ -4,6 +4,7 @@
 #include <QFileSystemModel>
 #include <QStringList>
 #include <QDir>
+#include <QFileInfo>
 
 class FileSystemModelWithGitIgnore : public QFileSystemModel {
     Q_OBJECT
@@ -26,5 +27,7 @@ private:
     void initializeDefaultPatterns();
     bool isPathIgnored(const QString& path) const;
     QString getRelativePath(const QString& path) const;
+    
+    // Declare the method in the header
     bool isFileProcessable(const QString& filePath) const;
 };

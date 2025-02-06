@@ -1,8 +1,8 @@
 #include "FileSystemModelWithGitIgnore.h"
+#include "FileExtensionConfig.h"
 #include <QFile>
 #include <QTextStream>
 #include <QRegularExpression>
-#include <QFileInfo>
 #include <QDebug>
 
 FileSystemModelWithGitIgnore::FileSystemModelWithGitIgnore(QObject* parent)
@@ -16,40 +16,9 @@ FileSystemModelWithGitIgnore::~FileSystemModelWithGitIgnore() {
 }
 
 void FileSystemModelWithGitIgnore::initializeDefaultPatterns() {
-    defaultIgnorePatterns = {
-        ".vs/*",       // Visual Studio folder
-        "build/*",     // Build output directory
-        "out/*",       // Output directory
-        "Debug/*",     // Debug build folder
-        "Release/*",   // Release build folder
-        "x64/*",       // Architecture-specific build folders
-        "x86/*",
-        "bin/*",       // Binary output directories
-        "obj/*",       // Object file directories
-        "dist/*",      // Distribution directory
-        
-        // Ignore compiled and binary files
-        "*.exe",
-        "*.dll",
-        "*.obj",
-        "*.pdb",
-        "*.lib",
-        "*.log",
-        "*.cache",
-        
-        // IDE and system files
-        "*.user",
-        "*.suo",
-        "*.sln",
-        ".DS_Store",
-        "Thumbs.db"
-    };
+    // Get excluded directories from configuration
+    defaultIgnorePatterns = FileExtensionConfig::getInstance().getExcludedDirectories().toVector();
     isInitialized = true;
-}
-
-
-Qt::ItemFlags FileSystemModelWithGitIgnore::flags(const QModelIndex& index) const {
-    return QFileSystemModel::flags(index) | Qt::ItemIsUserCheckable;
 }
 
 void FileSystemModelWithGitIgnore::updateGitIgnorePatterns(const QString& rootPath) {
@@ -104,31 +73,91 @@ bool FileSystemModelWithGitIgnore::isPathIgnored(const QString& path) const {
     return false;
 }
 
-
 bool FileSystemModelWithGitIgnore::isFileProcessable(const QString& filePath) const {
     QFileInfo fileInfo(filePath);
     
+    // Get configuration references
+    const auto& excludedDirs = FileExtensionConfig::getInstance().getExcludedDirectories();
+    const auto& allowedExtensions = FileExtensionConfig::getInstance().getAllowedExtensions();
+    qint64 maxSizeBytes = FileExtensionConfig::getInstance().getMaxFileSizeMB() * 1024 * 1024;
+
     // Explicitly reject certain directories
+    QString dirName = fileInfo.fileName();
+    if (excludedDirs.contains(dirName)) {
+        return false;
+    }
+    
+    // If it's a directory, return true
     if (fileInfo.isDir()) {
-        QString dirName = fileInfo.fileName();
-        if (dirName == ".vs" || dirName == "build" || dirName == "out" || 
-            dirName == "Debug" || dirName == "Release" || 
-            dirName == "bin" || dirName == "obj") {
+        return true;
+    }
+    
+    // Check file size
+    if (fileInfo.size() > maxSizeBytes) {
+        return false;
+    }
+    
+    // Check file extension whitelist for text-based files 
+    QString ext = fileInfo.suffix().toLower();
+    return !isPathIgnored(filePath) && allowedExtensions.contains(ext);
+}
+
+bool FileSystemModelWithGitIgnore::shouldIncludeFile(const QString& filePath) const
+{
+    if (!isInitialized) {
+        return true;
+    }
+    
+    QFileInfo fileInfo(filePath);
+    
+    // Get configuration references
+    const auto& excludedDirs = FileExtensionConfig::getInstance().getExcludedDirectories();
+    const auto& allowedExtensions = FileExtensionConfig::getInstance().getAllowedExtensions();
+    qint64 maxSizeBytes = FileExtensionConfig::getInstance().getMaxFileSizeMB() * 1024 * 1024;
+
+    // Check if the file is in any excluded directory
+    QString relativePath = QDir(projectRootPath).relativeFilePath(filePath);
+    QStringList pathParts = relativePath.split('/');
+    for (const QString& part : pathParts) {
+        if (excludedDirs.contains(part)) {
+            qDebug() << "Excluded directory:" << filePath;
             return false;
         }
-        return true;  // Allow other directories
+    }
+    
+    // If it's a directory, return true to allow navigation
+    if (fileInfo.isDir()) {
+        return true;
+    }
+    
+    // Check if the file matches any ignore patterns
+    if (isPathIgnored(filePath)) {
+        qDebug() << "Ignored by patterns:" << filePath;
+        return false;
+    }
+    
+    // Check file size
+    if (fileInfo.size() > maxSizeBytes) {
+        qDebug() << "File too large:" << filePath;
+        return false;
     }
     
     // Check file extension whitelist for text-based files
     QString ext = fileInfo.suffix().toLower();
-    QStringList allowedExtensions = {
-        "cpp", "h", "hpp", "c", "txt", "md", "cmake", 
-        "json", "yml", "yaml", "bat", "sh", "cs", 
-        "py", "js", "ts", "html", "css", "xml", 
-        "ini", "toml"
-    };
     
-    return !isPathIgnored(filePath) && allowedExtensions.contains(ext);
+    bool isIncluded = allowedExtensions.contains(ext);
+    if (isIncluded) {
+        qDebug() << "Including file:" << filePath;
+    } else {
+        qDebug() << "Excluding file (extension not allowed):" << filePath;
+    }
+    
+    return isIncluded;
+}
+
+
+Qt::ItemFlags FileSystemModelWithGitIgnore::flags(const QModelIndex& index) const {
+    return QFileSystemModel::flags(index) | Qt::ItemIsUserCheckable;
 }
 
 QVariant FileSystemModelWithGitIgnore::data(const QModelIndex& index, int role) const {
@@ -149,11 +178,4 @@ QVariant FileSystemModelWithGitIgnore::data(const QModelIndex& index, int role) 
         return QFileSystemModel::data(index, role);
     }
     return QFileSystemModel::data(index, role);
-}
-
-bool FileSystemModelWithGitIgnore::shouldIncludeFile(const QString& filePath) const {
-    if (!isInitialized) {
-        return true;
-    }
-    return isFileProcessable(filePath);
 }

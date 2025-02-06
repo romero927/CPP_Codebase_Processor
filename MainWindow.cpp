@@ -42,10 +42,40 @@ void MainWindow::delayedInit()
 
 MainWindow::~MainWindow()
 {
-    // If there's an active worker thread, clean it up
-    if (workerThread && workerThread->isRunning()) {
-        workerThread->quit();
-        workerThread->wait();
+    // Clean up worker thread explicitly
+    if (workerThread) {
+        if (workerThread->isRunning()) {
+            workerThread->quit();
+            workerThread->wait(1000); // Wait up to 1 second for thread to terminate
+        }
+        
+        // Additional safety checks
+        if (workerThread->isRunning()) {
+            qWarning() << "Worker thread did not terminate gracefully";
+            workerThread->terminate(); // Last resort, but not recommended
+        }
+        
+        delete workerThread;
+        workerThread = nullptr;
+    }
+
+    // Cleanup UI components
+    delete fileTreeView;
+    delete selectFolderButton;
+    delete saveFileButton;
+    delete saveClipboardButton;
+    delete mainLayout;
+    delete centralWidget;
+
+    // Cleanup models and watchers
+    if (fileModel) {
+        delete fileModel;
+        fileModel = nullptr;
+    }
+
+    if (gitignoreWatcher) {
+        delete gitignoreWatcher;
+        gitignoreWatcher = nullptr;
     }
 }
 
@@ -69,6 +99,7 @@ void MainWindow::setupUI()
     fileTreeView->setSelectionMode(QAbstractItemView::MultiSelection);
     fileTreeView->setSelectionBehavior(QAbstractItemView::SelectRows);
     mainLayout->addWidget(fileTreeView);
+
 
     // Create action buttons
     saveFileButton = new QPushButton("Save to File", this);
@@ -126,36 +157,32 @@ void MainWindow::selectFolder()
                 fileModel->updateGitIgnorePatterns(dir);
             }
             
+            // Clear previous selection
+            selectedFiles.clear();
+            fileTreeView->selectionModel()->clearSelection();
+            
+            // Manually populate selection
+            QDirIterator it(dir, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+            while (it.hasNext()) {
+                QString filePath = it.next();
+                if (fileModel->shouldIncludeFile(filePath)) {
+                    selectedFiles.insert(filePath);
+                    QModelIndex index = fileModel->index(filePath);
+                    if (index.isValid()) {
+                        fileTreeView->selectionModel()->select(
+                            index,
+                            QItemSelectionModel::Select | QItemSelectionModel::Rows
+                        );
+                    }
+                    qDebug() << "Auto selecting:" << filePath;
+                }
+            }
+            
+            qDebug() << "Total auto-selected files:" << selectedFiles.size();
+
             // Expand the entire directory tree
             expandEntireDirectoryTree(rootIndex);
 
-            // Manually populate selection
-            QDir directory(dir);
-            QStringList files = directory.entryList(
-                QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, 
-                QDir::Name
-            );
-            
-            selectedFiles.clear();
-            for (const QString& fileName : files) {
-                QString fullPath = dir + QDir::separator() + fileName;
-                if (fileModel->shouldIncludeFile(fullPath)) {
-                    selectedFiles.insert(fullPath);
-                }
-            }
-            
-            // Programmatically select these files in the tree
-            fileTreeView->selectionModel()->clearSelection();
-            for (const QString &filePath : selectedFiles) {
-                QModelIndex index = fileModel->index(filePath);
-                if (index.isValid()) {
-                    fileTreeView->selectionModel()->select(
-                        index,
-                        QItemSelectionModel::Select | QItemSelectionModel::Rows
-                    );
-                }
-            }
-            
             // Enable UI elements
             fileTreeView->setEnabled(true);
             saveFileButton->setEnabled(true);
@@ -167,24 +194,26 @@ void MainWindow::selectFolder()
     }
 }
 
+
+
+
 void MainWindow::expandEntireDirectoryTree(const QModelIndex& parentIndex, int depth)
 {
-    // Prevent excessive recursion
-    if (depth > 10) return;
+    if (depth > 10) return; // Prevent excessive recursion
     
-    // Expand the current index
     fileTreeView->expand(parentIndex);
-    
-    // Get the number of rows (child items) for this parent
     int rows = fileModel->rowCount(parentIndex);
     
-    // Iterate through all child items
     for (int i = 0; i < rows; ++i) {
         QModelIndex childIndex = fileModel->index(i, 0, parentIndex);
-        
-        // If this is a directory, recursively expand it
         if (fileModel->isDir(childIndex)) {
             expandEntireDirectoryTree(childIndex, depth + 1);
+        }
+        
+        // Check if the file should be included and select it
+        if (fileModel->shouldIncludeFile(fileModel->filePath(childIndex))) {
+            fileTreeView->selectionModel()->select(childIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+            selectedFiles.insert(fileModel->filePath(childIndex));
         }
     }
 }
@@ -240,49 +269,98 @@ void MainWindow::onGitIgnoreChanged()
 
 void MainWindow::startFileProcessing(bool toClipboard)
 {
-    // Debug output to help diagnose selection issues
-    qDebug() << "Starting processing with" << selectedFiles.size() << "files selected";
-    for (const QString& file : selectedFiles) {
-        qDebug() << "Selected file:" << file;
-    }
-
     // Validate that we have files to process
     if (selectedFiles.empty()) {
         QMessageBox::warning(this, "No Files Selected",
-                           "Please select files to process first.");
+                             "Please select files to process first.");
         return;
+    }
+
+    // Ensure any previous worker thread is properly cleaned up
+    if (workerThread) {
+        if (workerThread->isRunning()) {
+            workerThread->quit();
+            if (!workerThread->wait(2000)) { // Wait up to 2 seconds
+                qWarning() << "Worker thread did not terminate gracefully. Attempting to terminate.";
+                workerThread->terminate(); // Last resort
+            }
+            delete workerThread;
+            workerThread = nullptr;
+        }
     }
 
     // Create a set of files that should actually be processed
     std::set<QString> filesToProcess;
+    int processableFilesCount = 0;
+    qint64 totalProcessableSize = 0;
+
+    // Detailed file filtering with logging
     for (const QString& filePath : selectedFiles) {
         if (fileModel->shouldIncludeFile(filePath)) {
             QFileInfo fileInfo(filePath);
+            
             if (fileInfo.isFile()) {
-                filesToProcess.insert(filePath);
-                qDebug() << "Will process:" << filePath;
+                try {
+                    // Additional safety checks
+                    if (!fileInfo.isReadable()) {
+                        qWarning() << "File not readable:" << filePath;
+                        continue;
+                    }
+
+                    filesToProcess.insert(filePath);
+                    processableFilesCount++;
+                    totalProcessableSize += fileInfo.size();
+                } catch (const std::exception& e) {
+                    qWarning() << "Error processing file:" << filePath 
+                               << "Exception:" << e.what();
+                }
             }
         }
     }
 
+    // Validate processable files
     if (filesToProcess.empty()) {
         QMessageBox::warning(this, "No Valid Files",
-                           "None of the selected items can be processed. Please select valid files.");
+                             "None of the selected items can be processed. "
+                             "Please select valid files or check file extension configuration.");
         return;
+    }
+
+    // Log processing details
+    qDebug() << "Processing " << processableFilesCount << " files"
+             << "Total processable size:" << totalProcessableSize << "bytes"
+             << "Destination:" << (toClipboard ? "Clipboard" : "File");
+
+    // Optional: Confirm processing large files
+    const qint64 LARGE_FILE_THRESHOLD_MB = 100; // 100 MB
+    if (totalProcessableSize > (LARGE_FILE_THRESHOLD_MB * 1024 * 1024)) {
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            this, 
+            "Large File Set", 
+            QString("You are about to process %1 files totaling %2 MB. Continue?")
+                .arg(processableFilesCount)
+                .arg(totalProcessableSize / (1024 * 1024)),
+            QMessageBox::Yes | QMessageBox::No
+        );
+        
+        if (reply == QMessageBox::No) {
+            return;
+        }
     }
 
     // Create processing dialog
     auto* dialog = new ProcessingDialog(this);
     dialog->setWindowTitle(toClipboard ? "Copying to Clipboard" : "Saving to File");
+    dialog->setModal(true);
     dialog->show();
     qApp->processEvents();
 
-    // Create worker thread
+    // Create worker thread with enhanced safety
     auto* worker = new FileProcessingWorker(currentPath, filesToProcess, fileModel);
     workerThread = new QThread(this);
     worker->moveToThread(workerThread);
 
-    // Connect all signals
+    // Connect signals with error handling
     connect(worker, &FileProcessingWorker::processingProgress, 
             dialog, &ProcessingDialog::setProgress);
     connect(worker, &FileProcessingWorker::currentFile,
@@ -290,80 +368,123 @@ void MainWindow::startFileProcessing(bool toClipboard)
     connect(worker, &FileProcessingWorker::statistics,
             dialog, &ProcessingDialog::updateStatistics);
 
-    // Handle completion
+    // Handle successful completion
     connect(worker, &FileProcessingWorker::finished, this, 
-            [this, dialog, worker, toClipboard](const QString& result) {
-        // Clean up worker thread
-        workerThread->quit();
-        worker->deleteLater();
-        dialog->hide();
-
-        // Get the final statistics
-        int processedFiles = dialog->processedFiles() ;
-        QString totalSize = dialog->formatFileSize(dialog->totalSize());
-
-        if (result.isEmpty()) {
-            QMessageBox::warning(this, "Processing Result", 
-                               "No content was processed. Please check your file selection.");
-        } else if (toClipboard) {
-            QClipboard* clipboard = QApplication::clipboard();
-            clipboard->setText(result);
-            QMessageBox::information(this, "Success",
-                QString("Content copied to clipboard successfully!\n\n"
-                        "Files processed: %1\nTotal size: %2")
-                .arg(processedFiles).arg(totalSize));
-        } else {
-            // Create a default filename
-            QString defaultFileName = QFileInfo(currentPath).fileName() + "_processed.txt";
-            QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
-            QString defaultFilePath = QDir(defaultPath).filePath(defaultFileName);
-
-            QString savePath = QFileDialog::getSaveFileName(
-                this,
-                "Save Processed Code",
-                defaultFilePath,
-                "Text Files (*.txt);;Markdown Files (*.md);;All Files (*.*)",
-                nullptr,
-                QFileDialog::DontUseNativeDialog
-            );
-
-            if (!savePath.isEmpty()) {
-                QFile file(savePath);
-                if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                    QTextStream out(&file);
-                    out << result;
-                    file.close();
-                    QMessageBox::information(this, "Success",
-                        QString("Files successfully processed and saved!\n\n"
-                                "Files processed: %1\nTotal size: %2")
-                        .arg(processedFiles).arg(totalSize));
-                } else {
-                    QMessageBox::critical(this, "Error",
-                        "Could not save the file: " + file.errorString());
+        [this, dialog, worker, toClipboard, processableFilesCount](const QString& result) {
+            // Ensure UI updates happen on main thread
+            QMetaObject::invokeMethod(this, [this, dialog, worker, toClipboard, result, processableFilesCount]() {
+                // Clean up worker thread
+                if (workerThread) {
+                    workerThread->quit();
+                    workerThread->wait(1000);
+                    delete workerThread;
+                    workerThread = nullptr;
                 }
-            }
+                worker->deleteLater();
+                dialog->hide();
+
+                // Get the final statistics
+                int actualProcessedFiles = dialog->processedFiles();
+                QString totalSize = dialog->formatFileSize(dialog->totalSize());
+
+                if (result.isEmpty()) {
+                    QMessageBox::warning(this, "Processing Result", 
+                                       "No content was processed. Please check your file selection.");
+                    return;
+                }
+
+                if (toClipboard) {
+                    QClipboard* clipboard = QApplication::clipboard();
+                    clipboard->setText(result);
+                    QMessageBox::information(this, "Success",
+                        QString("Content copied to clipboard successfully!\n\n"
+                                "Files processed: %1\nTotal size: %2")
+                        .arg(actualProcessedFiles).arg(totalSize));
+                } else {
+                    // Create a default filename
+                    QString defaultFileName = QFileInfo(currentPath).fileName() + "_processed.txt";
+                    QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+                    QString defaultFilePath = QDir(defaultPath).filePath(defaultFileName);
+
+                    QString savePath = QFileDialog::getSaveFileName(
+                        this,
+                        "Save Processed Code",
+                        defaultFilePath,
+                        "Text Files (*.txt);;Markdown Files (*.md);;All Files (*.*)",
+                        nullptr,
+                        QFileDialog::DontUseNativeDialog
+                    );
+
+                    if (!savePath.isEmpty()) {
+                        QFile file(savePath);
+                        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                            QTextStream out(&file);
+                            out << result;
+                            file.close();
+                            QMessageBox::information(this, "Success",
+                                QString("Files successfully processed and saved!\n\n"
+                                        "Files processed: %1\nTotal size: %2")
+                                .arg(actualProcessedFiles).arg(totalSize));
+                        } else {
+                            QMessageBox::critical(this, "Error",
+                                "Could not save the file: " + file.errorString());
+                        }
+                    }
+                }
+
+                dialog->deleteLater();
+            });
         }
+    );
 
-        dialog->deleteLater();
-    });
-
-    // Handle errors
+    // Handle processing errors
     connect(worker, &FileProcessingWorker::error, this, 
-            [this, dialog](const QString& message) {
-        dialog->hide();
-        dialog->deleteLater();
-        QMessageBox::critical(this, "Error", message);
-    });
+        [this, dialog, worker](const QString& message) {
+            // Ensure UI updates happen on main thread
+            QMetaObject::invokeMethod(this, [this, dialog, worker, message]() {
+                // Clean up worker thread
+                if (workerThread) {
+                    workerThread->quit();
+                    workerThread->wait(1000);
+                    delete workerThread;
+                    workerThread = nullptr;
+                }
+                worker->deleteLater();
+                dialog->hide();
+                dialog->deleteLater();
+                
+                QMessageBox::critical(this, "Processing Error", message);
+            });
+        }
+    );
 
-    // Ensure proper cleanup
+    // Ensure proper cleanup if thread fails to start
     connect(workerThread, &QThread::finished, worker, &QObject::deleteLater);
     connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
 
     // Start processing
     connect(workerThread, &QThread::started, worker, &FileProcessingWorker::process);
-    workerThread->start();
-
-    qDebug() << "Processing thread started";
+    
+    // Start the thread
+    try {
+        workerThread->start();
+        qDebug() << "Processing thread started successfully";
+    } catch (const std::exception& e) {
+        qCritical() << "Failed to start processing thread:" << e.what();
+        QMessageBox::critical(this, "Thread Error", 
+            "Could not start processing thread. Please try again.");
+        
+        // Cleanup
+        dialog->hide();
+        dialog->deleteLater();
+        
+        if (workerThread) {
+            delete workerThread;
+            workerThread = nullptr;
+        }
+        
+        worker->deleteLater();
+    }
 }
 
 void MainWindow::saveToClipboard()
@@ -374,4 +495,53 @@ void MainWindow::saveToClipboard()
 void MainWindow::saveToFile()
 {
     startFileProcessing(false);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    // Check if there's an active worker thread
+    if (workerThread && workerThread->isRunning()) {
+        // Prompt user about ongoing processing
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            this, 
+            "Ongoing Processing", 
+            "A file processing task is currently running. Do you want to stop it and close the application?",
+            QMessageBox::Yes | QMessageBox::No
+        );
+        
+        if (reply == QMessageBox::No) {
+            // Cancel the close event
+            event->ignore();
+            return;
+        }
+        
+        // Attempt to stop the thread
+        workerThread->quit();
+        
+        // Wait for the thread to terminate
+        if (!workerThread->wait(2000)) { // Wait up to 2 seconds
+            qWarning() << "Worker thread did not terminate gracefully. Attempting to terminate.";
+            workerThread->terminate(); // Last resort
+        }
+    }
+
+    // Cleanup any remaining resources
+    if (fileModel) {
+        delete fileModel;
+        fileModel = nullptr;
+    }
+
+    if (gitignoreWatcher) {
+        delete gitignoreWatcher;
+        gitignoreWatcher = nullptr;
+    }
+
+    // Clear selected files
+    selectedFiles.clear();
+
+    // Accept the close event
+    event->accept();
+
+    // Call base class implementation
+    QMainWindow::closeEvent(event);
 }

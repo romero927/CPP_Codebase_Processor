@@ -25,6 +25,9 @@ add_executable(codebase_processor WIN32
     main.cpp
     MainWindow.cpp
     MainWindow.h
+    FileExtensionConfig.h
+    FileProcessableUtils.h  # Add this line
+    FileProcessableUtils.cpp # And this line
     FileProcessingWorker.cpp
     FileProcessingWorker.h
     FileSystemModelWithGitIgnore.cpp
@@ -33,6 +36,10 @@ add_executable(codebase_processor WIN32
     ProcessingDialog.h
     resources.qrc
 )
+
+configure_file(${CMAKE_SOURCE_DIR}/config/file_extensions.json
+               ${CMAKE_BINARY_DIR}/config/file_extensions.json
+               COPYONLY)
 
 # Link against Qt libraries
 target_link_libraries(codebase_processor PRIVATE

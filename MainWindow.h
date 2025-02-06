@@ -5,6 +5,7 @@
 #include <QMainWindow>
 #include <QString>
 #include <set>
+#include <QCloseEvent>  // Add this include
 
 // Forward declarations to reduce header dependencies
 class QTreeView;
@@ -20,7 +21,11 @@ class MainWindow : public QMainWindow {
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
+    ~MainWindow() override;
+
+protected:
+    // Add closeEvent method to handle window closing
+    void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void selectFolder();
