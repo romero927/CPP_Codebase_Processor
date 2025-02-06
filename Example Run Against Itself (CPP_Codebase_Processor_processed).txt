@@ -1,3 +1,222 @@
+=== .gitignore ===
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CMake build directories
+build/
+cmake-build-*/
+
+# Qt Creator user configurations
+*.user
+
+# Qt Creator backups
+*.autosave
+
+# Qt Creator QML debugging files
+*.qmlproject.user
+*.qmlproject.user.*
+
+# Qt Creator local machine specific files for imported projects
+*creator.user*
+
+# Qt Creator configuration files
+*.config
+
+# Qt Designer generated files
+*.qrc.depends
+*.ui.depends
+
+# Compiled translation files
+*.qm
+
+# Folders to ignore
+build-*/
+*-build-*/
+
+# Visual Studio files
+.vs/
+Debug/
+Release/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CMake build directories
+build/
+cmake-build-*/
+
+# Qt Creator user configurations
+*.user
+
+# Qt Creator backups
+*.autosave
+
+# Qt Creator QML debugging files
+*.qmlproject.user
+*.qmlproject.user.*
+
+# Qt Creator local machine specific files for imported projects
+*creator.user*
+
+# Qt Creator configuration files
+*.config
+
+# Qt Designer generated files
+*.qrc.depends
+*.ui.depends
+
+# Compiled translation files
+*.qm
+
+# Folders to ignore
+build-*/
+*-build-*/
+
+# Visual Studio files
+.vs/
+Debug/
+Release/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+=== CMakeLists.txt ===
+cmake_minimum_required(VERSION 3.16.0)
+
+project(codebase_processor LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Qt configuration
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
+# Adjust this path to match your Qt installation
+set(CMAKE_PREFIX_PATH "E:/QT/6.8.2/msvc2022_64")
+
+# Find Qt packages
+find_package(Qt6 REQUIRED COMPONENTS 
+    Core
+    Gui
+    Widgets
+)
+
+# List all our source files
+add_executable(codebase_processor WIN32
+    main.cpp
+    MainWindow.cpp
+    MainWindow.h
+    FileExtensionConfig.h
+    FileProcessableUtils.h  # Add this line
+    FileProcessableUtils.cpp # And this line
+    FileProcessingWorker.cpp
+    FileProcessingWorker.h
+    FileSystemModelWithGitIgnore.cpp
+    FileSystemModelWithGitIgnore.h
+    ProcessingDialog.cpp 
+    ProcessingDialog.h
+    resources.qrc
+)
+
+configure_file(${CMAKE_SOURCE_DIR}/config/file_extensions.json
+               ${CMAKE_BINARY_DIR}/config/file_extensions.json
+               COPYONLY)
+
+# Link against Qt libraries
+target_link_libraries(codebase_processor PRIVATE
+    Qt::Core
+    Qt::Gui
+    Qt::Widgets
+) 
+
+# Deployment configuration for Windows
+if(WIN32)
+    # Find windeployqt executable
+    get_target_property(_qmake_executable Qt::qmake IMPORTED_LOCATION)
+    get_filename_component(_qt_bin_dir "${_qmake_executable}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${_qt_bin_dir}")
+
+    # Add deployment command
+    add_custom_command(TARGET codebase_processor POST_BUILD
+    COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+        --release  # <-- Instead of --debug
+        --no-compiler-runtime
+        --no-translations
+        --no-system-d3d-compiler
+        "$<TARGET_FILE:codebase_processor>"
+    COMMENT "Deploying Qt dependencies..."
+)
+
+    # Copy Visual C++ runtime
+    include(InstallRequiredSystemLibraries)
+    if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+        add_custom_command(TARGET codebase_processor POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} $<TARGET_FILE_DIR:codebase_processor>
+            COMMENT "Copying Visual C++ runtime libraries..."
+        )
+    endif()
+endif() 
+
+=== Example Run Against Itself (CPP_Codebase_Processor_processed).txt ===
 === CMakeLists.txt ===
 cmake_minimum_required(VERSION 3.16.0)
 
@@ -6744,5 +6963,1627 @@ int main(int argc, char *argv[]) {
     MainWindow window;
     window.show();
     return app.exec();
+}
+
+
+
+=== FileExtensionConfig.h ===
+#pragma once
+
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QFile>
+#include <QStringList>
+
+
+class FileExtensionConfig {
+public:
+    static FileExtensionConfig& getInstance() {
+        static FileExtensionConfig instance;
+        return instance;
+    }
+
+    QStringList getAllowedExtensions() const { return m_textExtensions; }
+    QStringList getExcludedDirectories() const { return m_excludedDirectories; }
+    qint64 getMaxFileSizeMB() const { return m_maxFileSizeMB; }
+
+private:
+    FileExtensionConfig() {
+        loadConfig();
+    }
+
+    void loadConfig() {
+        QFile configFile(":/config/file_extensions.json");
+        if (!configFile.open(QIODevice::ReadOnly)) {
+            qWarning() << "Could not open file extensions config file";
+            return;
+        }
+
+        QJsonDocument jsonDoc = QJsonDocument::fromJson(configFile.readAll());
+        if (!jsonDoc.isObject()) {
+            qWarning() << "Invalid JSON configuration";
+            return;
+        }
+
+        QJsonObject configObj = jsonDoc.object();
+
+        // Parse text extensions
+        QJsonArray extensionsArray = configObj["text_extensions"].toArray();
+        for (const QJsonValue& ext : extensionsArray) {
+            m_textExtensions.append(ext.toString());
+        }
+
+        // Parse excluded directories
+        QJsonArray dirArray = configObj["excluded_directories"].toArray();
+        for (const QJsonValue& dir : dirArray) {
+            m_excludedDirectories.append(dir.toString());
+        }
+
+        // Parse max file size
+        m_maxFileSizeMB = configObj["max_file_size_mb"].toInt(10);
+    }
+
+    QStringList m_textExtensions;
+    QStringList m_excludedDirectories;
+    qint64 m_maxFileSizeMB;
+};
+
+=== FileProcessableUtils.cpp ===
+#include "FileProcessableUtils.h"
+#include "FileExtensionConfig.h"
+#include <QFileInfo>
+#include <QDebug>
+
+bool isFileProcessableImpl(const QString& filePath) {
+    QFileInfo fileInfo(filePath);
+    
+    // Get configuration references
+    const auto& excludedDirs = FileExtensionConfig::getInstance().getExcludedDirectories();
+    const auto& allowedExtensions = FileExtensionConfig::getInstance().getAllowedExtensions();
+    qint64 maxSizeBytes = FileExtensionConfig::getInstance().getMaxFileSizeMB() * 1024 * 1024;
+
+    // Explicitly reject certain directories
+    QString dirName = fileInfo.fileName();
+    if (excludedDirs.contains(dirName)) {
+        return false;
+    }
+    
+    // If it's a directory, return true
+    if (fileInfo.isDir()) {
+        return true;
+    }
+    
+    // Check file size
+    if (fileInfo.size() > maxSizeBytes) {
+        qDebug() << "File exceeds max size:" << filePath 
+                 << "Size:" << fileInfo.size() 
+                 << "Max:" << maxSizeBytes;
+        return false;
+    }
+    
+    // Check file extension whitelist for text-based files
+    QString ext = fileInfo.suffix().toLower();
+    
+    bool isProcessable = allowedExtensions.contains(ext);
+    
+    if (!isProcessable) {
+        qDebug() << "File not processable:" << filePath 
+                 << "Extension:" << ext;
+    }
+    
+    return isProcessable;
+}
+
+=== FileProcessableUtils.h ===
+#pragma once
+
+#include <QString>
+
+// Function to determine if a file is processable
+// This function can be used across different translation units
+bool isFileProcessableImpl(const QString& filePath);
+
+=== FileProcessingWorker.cpp ===
+#include "FileProcessingWorker.h"
+#include "FileSystemModelWithGitIgnore.h"
+#include "FileProcessableUtils.h"
+#include "FileExtensionConfig.h"
+#include <QFile>
+#include <QTextStream>
+#include <QRegularExpression>
+#include <QFileInfo>
+#include <QDebug>
+#include <QThread>
+#include <QDir>
+
+FileProcessingWorker::FileProcessingWorker(
+    const QString& path, 
+    const std::set<QString>& files,
+    FileSystemModelWithGitIgnore* model,
+    QObject* parent
+) : QObject(parent)
+  , rootPath(path)
+  , selectedFiles(files)
+  , fileModel(model)
+  , totalProcessedSize(0) {
+}
+
+void FileProcessingWorker::process() {
+    QString result;
+    QDir baseDir(rootPath);
+    
+    // Filter out non-processable files first
+    std::set<QString> processableFiles;
+    for (const QString& filePath : selectedFiles) {
+        if (isFileProcessableImpl(filePath)) {
+            processableFiles.insert(filePath);
+        }
+    }
+    
+    // Use processable files for total count
+    int totalFiles = processableFiles.size();
+    emit processingProgress(0, totalFiles);
+
+    // Detailed processing log
+    qDebug() << "Starting to process" << totalFiles << "files";
+
+    int processedFiles = 0;
+    for (const QString& filePath : processableFiles) {
+        // Emit current file being processed
+        emit currentFile(filePath);
+        
+        QFile file(filePath);
+        
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QByteArray content = file.readAll();
+            
+            // Get the relative path for output
+            QString relativePath = baseDir.relativeFilePath(filePath);
+            result += "=== " + relativePath + " ===\n";
+            result += QString::fromUtf8(content);
+            result += "\n\n";
+            
+            // Update total processed size
+            totalProcessedSize += content.size();
+            processedFiles++;
+            
+            // Update progress and statistics
+            emit processingProgress(processedFiles, totalFiles);
+            emit statistics(processedFiles, totalProcessedSize);
+            
+            // Give the UI a chance to update and prevent UI freezing
+            QThread::msleep(1);
+        } else {
+            // Error handling for file open failures
+            QString errorMessage = QString("Could not open file: %1 - %2")
+                                    .arg(filePath, file.errorString());
+            qWarning() << errorMessage;
+            emit error(errorMessage);
+            return;
+        }
+    }
+
+    // Final checks and signaling
+    if (result.isEmpty()) {
+        qWarning() << "No files were processed.";
+        emit error("No files were processed. Please check your selection.");
+        return;
+    }
+
+    // Log successful processing
+    qDebug() << "Successfully processed" << processedFiles << "files"
+             << "Total size:" << totalProcessedSize << "bytes";
+
+    // Signal successful completion
+    emit finished(result);
+}
+
+=== FileProcessingWorker.h ===
+// FileProcessingWorker.h
+#pragma once
+
+#include <QObject>
+#include <QString>
+#include <set>
+
+class FileSystemModelWithGitIgnore;
+
+class FileProcessingWorker : public QObject {
+    Q_OBJECT
+
+public:
+    explicit FileProcessingWorker(
+        const QString& rootPath, 
+        const std::set<QString>& selectedFiles,
+        FileSystemModelWithGitIgnore* model,
+        QObject* parent = nullptr
+    );
+
+public slots:
+    void process();
+
+signals:
+    void processingProgress(int current, int total);
+    void currentFile(const QString& filePath);
+    void statistics(int processedFiles, qint64 totalSize);
+    void finished(const QString& result);
+    void error(const QString& message);
+
+private:
+    QString rootPath;
+    std::set<QString> selectedFiles;
+    FileSystemModelWithGitIgnore* fileModel;
+    qint64 totalProcessedSize;
+};
+
+=== FileSystemModelWithGitIgnore.cpp ===
+#include "FileSystemModelWithGitIgnore.h"
+#include "FileExtensionConfig.h"
+#include <QFile>
+#include <QTextStream>
+#include <QRegularExpression>
+#include <QDebug>
+
+FileSystemModelWithGitIgnore::FileSystemModelWithGitIgnore(QObject* parent)
+    : QFileSystemModel(parent)
+    , isInitialized(false) {
+    // Defer initialization of patterns until they're actually needed
+    setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden);
+}
+
+FileSystemModelWithGitIgnore::~FileSystemModelWithGitIgnore() {
+}
+
+void FileSystemModelWithGitIgnore::initializeDefaultPatterns() {
+    // Get excluded directories from configuration
+    defaultIgnorePatterns = FileExtensionConfig::getInstance().getExcludedDirectories().toVector();
+    isInitialized = true;
+}
+
+void FileSystemModelWithGitIgnore::updateGitIgnorePatterns(const QString& rootPath) {
+    if (!isInitialized) {
+        initializeDefaultPatterns();
+    }
+
+    projectRootPath = rootPath;
+    gitIgnorePatterns.clear();
+    
+    QFile gitignore(rootPath + "/.gitignore");
+    if (gitignore.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&gitignore);
+        while (!in.atEnd()) {
+            QString line = in.readLine().trimmed();
+            if (!line.isEmpty() && !line.startsWith('#')) {
+                if (line.endsWith("/")) {
+                    line += "*";
+                }
+                gitIgnorePatterns.append(line);
+            }
+        }
+        gitignore.close();
+    }
+}
+
+QString FileSystemModelWithGitIgnore::getRelativePath(const QString& path) const {
+    return QDir(projectRootPath).relativeFilePath(path);
+}
+
+bool FileSystemModelWithGitIgnore::isPathIgnored(const QString& path) const {
+    QString relativePath = getRelativePath(path);
+    
+    // Check default patterns first
+    for (const QString& pattern : defaultIgnorePatterns) {
+        QRegularExpression rx(QRegularExpression::wildcardToRegularExpression(pattern),
+                            QRegularExpression::CaseInsensitiveOption);
+        if (rx.match(relativePath).hasMatch()) {
+            return true;
+        }
+    }
+
+    // Then check gitignore patterns
+    for (const QString& pattern : gitIgnorePatterns) {
+        QRegularExpression rx(QRegularExpression::wildcardToRegularExpression(pattern),
+                            QRegularExpression::CaseInsensitiveOption);
+        if (rx.match(relativePath).hasMatch()) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool FileSystemModelWithGitIgnore::isFileProcessable(const QString& filePath) const {
+    QFileInfo fileInfo(filePath);
+    
+    // Get configuration references
+    const auto& excludedDirs = FileExtensionConfig::getInstance().getExcludedDirectories();
+    const auto& allowedExtensions = FileExtensionConfig::getInstance().getAllowedExtensions();
+    qint64 maxSizeBytes = FileExtensionConfig::getInstance().getMaxFileSizeMB() * 1024 * 1024;
+
+    // Explicitly reject certain directories
+    QString dirName = fileInfo.fileName();
+    if (excludedDirs.contains(dirName)) {
+        return false;
+    }
+    
+    // If it's a directory, return true
+    if (fileInfo.isDir()) {
+        return true;
+    }
+    
+    // Check file size
+    if (fileInfo.size() > maxSizeBytes) {
+        return false;
+    }
+    
+    // Check file extension whitelist for text-based files 
+    QString ext = fileInfo.suffix().toLower();
+    return !isPathIgnored(filePath) && allowedExtensions.contains(ext);
+}
+
+bool FileSystemModelWithGitIgnore::shouldIncludeFile(const QString& filePath) const
+{
+    if (!isInitialized) {
+        return true;
+    }
+    
+    QFileInfo fileInfo(filePath);
+    
+    // Get configuration references
+    const auto& excludedDirs = FileExtensionConfig::getInstance().getExcludedDirectories();
+    const auto& allowedExtensions = FileExtensionConfig::getInstance().getAllowedExtensions();
+    qint64 maxSizeBytes = FileExtensionConfig::getInstance().getMaxFileSizeMB() * 1024 * 1024;
+
+    // Check if the file is in any excluded directory
+    QString relativePath = QDir(projectRootPath).relativeFilePath(filePath);
+    QStringList pathParts = relativePath.split('/');
+    for (const QString& part : pathParts) {
+        if (excludedDirs.contains(part)) {
+            qDebug() << "Excluded directory:" << filePath;
+            return false;
+        }
+    }
+    
+    // If it's a directory, return true to allow navigation
+    if (fileInfo.isDir()) {
+        return true;
+    }
+    
+    // Check if the file matches any ignore patterns
+    if (isPathIgnored(filePath)) {
+        qDebug() << "Ignored by patterns:" << filePath;
+        return false;
+    }
+    
+    // Check file size
+    if (fileInfo.size() > maxSizeBytes) {
+        qDebug() << "File too large:" << filePath;
+        return false;
+    }
+    
+    // Check file extension whitelist for text-based files
+    QString ext = fileInfo.suffix().toLower();
+    
+    bool isIncluded = allowedExtensions.contains(ext);
+    if (isIncluded) {
+        qDebug() << "Including file:" << filePath;
+    } else {
+        qDebug() << "Excluding file (extension not allowed):" << filePath;
+    }
+    
+    return isIncluded;
+}
+
+
+Qt::ItemFlags FileSystemModelWithGitIgnore::flags(const QModelIndex& index) const {
+    return QFileSystemModel::flags(index) | Qt::ItemIsUserCheckable;
+}
+
+QVariant FileSystemModelWithGitIgnore::data(const QModelIndex& index, int role) const {
+    if (!isInitialized || !index.isValid()) {
+        return QFileSystemModel::data(index, role);
+    }
+
+    if (role == Qt::CheckStateRole && index.column() == 0) {
+        QString path = filePath(index);
+        QFileInfo fileInfo(path);
+        
+        // Don't show checkboxes for directories
+        if (fileInfo.isDir()) {
+            return QVariant();
+        }
+        
+        // Allow manual selection of all files, regardless of .gitignore rules
+        return QFileSystemModel::data(index, role);
+    }
+    return QFileSystemModel::data(index, role);
+}
+
+=== FileSystemModelWithGitIgnore.h ===
+// FileSystemModelWithGitIgnore.h
+#pragma once
+
+#include <QFileSystemModel>
+#include <QStringList>
+#include <QDir>
+#include <QFileInfo>
+
+class FileSystemModelWithGitIgnore : public QFileSystemModel {
+    Q_OBJECT
+
+public:
+    explicit FileSystemModelWithGitIgnore(QObject* parent = nullptr);
+    ~FileSystemModelWithGitIgnore();
+
+    QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
+    Qt::ItemFlags flags(const QModelIndex& index) const override;
+    void updateGitIgnorePatterns(const QString& rootPath);
+    bool shouldIncludeFile(const QString& filePath) const;
+
+private:
+    QStringList gitIgnorePatterns;
+    QStringList defaultIgnorePatterns;
+    QString projectRootPath;
+    bool isInitialized;
+
+    void initializeDefaultPatterns();
+    bool isPathIgnored(const QString& path) const;
+    QString getRelativePath(const QString& path) const;
+    
+    // Declare the method in the header
+    bool isFileProcessable(const QString& filePath) const;
+};
+
+=== MainWindow.cpp ===
+#include "MainWindow.h"
+#include "FileSystemModelWithGitIgnore.h"
+#include "ProcessingDialog.h"
+#include "FileProcessingWorker.h"
+
+#include <QVBoxLayout>
+#include <QPushButton>
+#include <QTreeView>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QFile>
+#include <QTextStream>
+#include <QDirIterator>
+#include <QClipboard>
+#include <QApplication>
+#include <QFileSystemWatcher>
+#include <QThread>
+#include <QTimer>
+#include <QStandardPaths>
+#include <QItemSelectionModel>
+#include <QDebug>
+
+MainWindow::MainWindow(QWidget *parent) 
+    : QMainWindow(parent)
+    , workerThread(nullptr)
+{
+    // Only do minimal setup initially
+    setWindowTitle("Codebase Processor");
+    resize(800, 600);
+    
+    // Use QTimer to defer the rest of the initialization
+    QTimer::singleShot(0, this, &MainWindow::delayedInit);
+}
+
+void MainWindow::delayedInit()
+{
+    setupUI();
+    
+    // Additional setup for file model
+    fileModel->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden);
+}
+
+MainWindow::~MainWindow()
+{
+    // Clean up worker thread explicitly
+    if (workerThread) {
+        if (workerThread->isRunning()) {
+            workerThread->quit();
+            workerThread->wait(1000); // Wait up to 1 second for thread to terminate
+        }
+        
+        // Additional safety checks
+        if (workerThread->isRunning()) {
+            qWarning() << "Worker thread did not terminate gracefully";
+            workerThread->terminate(); // Last resort, but not recommended
+        }
+        
+        delete workerThread;
+        workerThread = nullptr;
+    }
+
+    // Cleanup UI components
+    delete fileTreeView;
+    delete selectFolderButton;
+    delete saveFileButton;
+    delete saveClipboardButton;
+    delete mainLayout;
+    delete centralWidget;
+
+    // Cleanup models and watchers
+    if (fileModel) {
+        delete fileModel;
+        fileModel = nullptr;
+    }
+
+    if (gitignoreWatcher) {
+        delete gitignoreWatcher;
+        gitignoreWatcher = nullptr;
+    }
+}
+
+void MainWindow::setupUI()
+{
+    centralWidget = new QWidget(this);
+    setCentralWidget(centralWidget);
+    mainLayout = new QVBoxLayout(centralWidget);
+
+    // Create folder selection button
+    selectFolderButton = new QPushButton("Select Codebase Folder", this);
+    connect(selectFolderButton, &QPushButton::clicked, this, &MainWindow::selectFolder);
+    mainLayout->addWidget(selectFolderButton);
+
+    // Create tree view but defer model setup
+    fileTreeView = new QTreeView(this);
+    fileTreeView->setUniformRowHeights(true);
+    fileTreeView->setEnabled(false);
+    fileTreeView->setSortingEnabled(false); // Enable only after folder selection
+    // Make sure multi-selection is enabled so multiple files can be selected
+    fileTreeView->setSelectionMode(QAbstractItemView::MultiSelection);
+    fileTreeView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    mainLayout->addWidget(fileTreeView);
+
+
+    // Create action buttons
+    saveFileButton = new QPushButton("Save to File", this);
+    saveClipboardButton = new QPushButton("Copy to Clipboard", this);
+    
+    connect(saveFileButton, &QPushButton::clicked, this, &MainWindow::saveToFile);
+    connect(saveClipboardButton, &QPushButton::clicked, this, &MainWindow::saveToClipboard);
+
+    mainLayout->addWidget(saveFileButton);
+    mainLayout->addWidget(saveClipboardButton);
+
+    // Disable buttons initially
+    saveFileButton->setEnabled(false);
+    saveClipboardButton->setEnabled(false);
+
+    // Initialize file system model
+    fileModel = new FileSystemModelWithGitIgnore(this);
+    fileModel->setReadOnly(true);
+    fileTreeView->setModel(fileModel);
+
+    // Set up selection handling after model is set
+    connect(fileTreeView->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, &MainWindow::handleSelectionChanged);
+
+    // Set up gitignore watcher
+    gitignoreWatcher = new QFileSystemWatcher(this);
+    connect(gitignoreWatcher, &QFileSystemWatcher::fileChanged,
+            this, &MainWindow::onGitIgnoreChanged);
+}
+
+void MainWindow::selectFolder()
+{
+    QString dir = QFileDialog::getExistingDirectory(
+        this,
+        "Select Codebase Directory",
+        QString(),
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks
+    );
+
+    if (!dir.isEmpty()) {
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        
+        // Use a timer to allow the UI to update
+        QTimer::singleShot(0, this, [this, dir]() {
+            currentPath = dir;
+            
+            // Set up the model with the new path
+            QModelIndex rootIndex = fileModel->setRootPath(dir);
+            fileTreeView->setRootIndex(rootIndex);
+            
+            // Update .gitignore patterns if present
+            QString gitignorePath = dir + "/.gitignore";
+            if (QFile::exists(gitignorePath)) {
+                gitignoreWatcher->addPath(gitignorePath);
+                fileModel->updateGitIgnorePatterns(dir);
+            }
+            
+            // Clear previous selection
+            selectedFiles.clear();
+            fileTreeView->selectionModel()->clearSelection();
+            
+            // Manually populate selection
+            QDirIterator it(dir, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+            while (it.hasNext()) {
+                QString filePath = it.next();
+                if (fileModel->shouldIncludeFile(filePath)) {
+                    selectedFiles.insert(filePath);
+                    QModelIndex index = fileModel->index(filePath);
+                    if (index.isValid()) {
+                        fileTreeView->selectionModel()->select(
+                            index,
+                            QItemSelectionModel::Select | QItemSelectionModel::Rows
+                        );
+                    }
+                    qDebug() << "Auto selecting:" << filePath;
+                }
+            }
+            
+            qDebug() << "Total auto-selected files:" << selectedFiles.size();
+
+            // Expand the entire directory tree
+            expandEntireDirectoryTree(rootIndex);
+
+            // Enable UI elements
+            fileTreeView->setEnabled(true);
+            saveFileButton->setEnabled(true);
+            saveClipboardButton->setEnabled(true);
+            fileTreeView->setSortingEnabled(true);
+            
+            QApplication::restoreOverrideCursor();
+        });
+    }
+}
+
+
+
+
+void MainWindow::expandEntireDirectoryTree(const QModelIndex& parentIndex, int depth)
+{
+    if (depth > 10) return; // Prevent excessive recursion
+    
+    fileTreeView->expand(parentIndex);
+    int rows = fileModel->rowCount(parentIndex);
+    
+    for (int i = 0; i < rows; ++i) {
+        QModelIndex childIndex = fileModel->index(i, 0, parentIndex);
+        if (fileModel->isDir(childIndex)) {
+            expandEntireDirectoryTree(childIndex, depth + 1);
+        }
+        
+        // Check if the file should be included and select it
+        if (fileModel->shouldIncludeFile(fileModel->filePath(childIndex))) {
+            fileTreeView->selectionModel()->select(childIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+            selectedFiles.insert(fileModel->filePath(childIndex));
+        }
+    }
+}
+
+void MainWindow::handleSelectionChanged(const QItemSelection& selected, 
+                                        const QItemSelection& deselected)
+{
+    // Process newly selected items
+    for (const QModelIndex& index : selected.indexes()) {
+        if (index.column() == 0) {  // Only process the first column
+            QString filePath = fileModel->filePath(index);
+            // Check if it's a file
+            QFileInfo fileInfo(filePath);
+            if (fileInfo.isFile()) {
+                selectedFiles.insert(filePath);
+                qDebug() << "Added to selection:" << filePath;
+            }
+        }
+    }
+    
+    // Process deselected items
+    for (const QModelIndex& index : deselected.indexes()) {
+        if (index.column() == 0) {  // Only process the first column
+            QString filePath = fileModel->filePath(index);
+            selectedFiles.erase(filePath);
+            qDebug() << "Removed from selection:" << filePath;
+        }
+    }
+    
+    qDebug() << "Total files selected:" << selectedFiles.size();
+}
+
+void MainWindow::expandDirectory(const QModelIndex& index, int depth)
+{
+    if (depth <= 0) return;
+    
+    fileTreeView->expand(index);
+    int rows = fileModel->rowCount(index);
+    
+    for (int i = 0; i < rows; ++i) {
+        QModelIndex childIndex = fileModel->index(i, 0, index);
+        if (fileModel->isDir(childIndex)) {
+            expandDirectory(childIndex, depth - 1);
+        }
+    }
+}
+
+void MainWindow::onGitIgnoreChanged()
+{
+    // When .gitignore changes, update the patterns and refresh the view
+    fileModel->updateGitIgnorePatterns(currentPath);
+}
+
+void MainWindow::startFileProcessing(bool toClipboard)
+{
+    // Validate that we have files to process
+    if (selectedFiles.empty()) {
+        QMessageBox::warning(this, "No Files Selected",
+                             "Please select files to process first.");
+        return;
+    }
+
+    // Ensure any previous worker thread is properly cleaned up
+    if (workerThread) {
+        if (workerThread->isRunning()) {
+            workerThread->quit();
+            if (!workerThread->wait(2000)) { // Wait up to 2 seconds
+                qWarning() << "Worker thread did not terminate gracefully. Attempting to terminate.";
+                workerThread->terminate(); // Last resort
+            }
+            delete workerThread;
+            workerThread = nullptr;
+        }
+    }
+
+    // Create a set of files that should actually be processed
+    std::set<QString> filesToProcess;
+    int processableFilesCount = 0;
+    qint64 totalProcessableSize = 0;
+
+    // Detailed file filtering with logging
+    for (const QString& filePath : selectedFiles) {
+        if (fileModel->shouldIncludeFile(filePath)) {
+            QFileInfo fileInfo(filePath);
+            
+            if (fileInfo.isFile()) {
+                try {
+                    // Additional safety checks
+                    if (!fileInfo.isReadable()) {
+                        qWarning() << "File not readable:" << filePath;
+                        continue;
+                    }
+
+                    filesToProcess.insert(filePath);
+                    processableFilesCount++;
+                    totalProcessableSize += fileInfo.size();
+                } catch (const std::exception& e) {
+                    qWarning() << "Error processing file:" << filePath 
+                               << "Exception:" << e.what();
+                }
+            }
+        }
+    }
+
+    // Validate processable files
+    if (filesToProcess.empty()) {
+        QMessageBox::warning(this, "No Valid Files",
+                             "None of the selected items can be processed. "
+                             "Please select valid files or check file extension configuration.");
+        return;
+    }
+
+    // Log processing details
+    qDebug() << "Processing " << processableFilesCount << " files"
+             << "Total processable size:" << totalProcessableSize << "bytes"
+             << "Destination:" << (toClipboard ? "Clipboard" : "File");
+
+    // Optional: Confirm processing large files
+    const qint64 LARGE_FILE_THRESHOLD_MB = 100; // 100 MB
+    if (totalProcessableSize > (LARGE_FILE_THRESHOLD_MB * 1024 * 1024)) {
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            this, 
+            "Large File Set", 
+            QString("You are about to process %1 files totaling %2 MB. Continue?")
+                .arg(processableFilesCount)
+                .arg(totalProcessableSize / (1024 * 1024)),
+            QMessageBox::Yes | QMessageBox::No
+        );
+        
+        if (reply == QMessageBox::No) {
+            return;
+        }
+    }
+
+    // Create processing dialog
+    auto* dialog = new ProcessingDialog(this);
+    dialog->setWindowTitle(toClipboard ? "Copying to Clipboard" : "Saving to File");
+    dialog->setModal(true);
+    dialog->show();
+    qApp->processEvents();
+
+    // Create worker thread with enhanced safety
+    auto* worker = new FileProcessingWorker(currentPath, filesToProcess, fileModel);
+    workerThread = new QThread(this);
+    worker->moveToThread(workerThread);
+
+    // Connect signals with error handling
+    connect(worker, &FileProcessingWorker::processingProgress, 
+            dialog, &ProcessingDialog::setProgress);
+    connect(worker, &FileProcessingWorker::currentFile,
+            dialog, &ProcessingDialog::setCurrentFile);
+    connect(worker, &FileProcessingWorker::statistics,
+            dialog, &ProcessingDialog::updateStatistics);
+
+    // Handle successful completion
+    connect(worker, &FileProcessingWorker::finished, this, 
+        [this, dialog, worker, toClipboard, processableFilesCount](const QString& result) {
+            // Ensure UI updates happen on main thread
+            QMetaObject::invokeMethod(this, [this, dialog, worker, toClipboard, result, processableFilesCount]() {
+                // Clean up worker thread
+                if (workerThread) {
+                    workerThread->quit();
+                    workerThread->wait(1000);
+                    delete workerThread;
+                    workerThread = nullptr;
+                }
+                worker->deleteLater();
+                dialog->hide();
+
+                // Get the final statistics
+                int actualProcessedFiles = dialog->processedFiles();
+                QString totalSize = dialog->formatFileSize(dialog->totalSize());
+
+                if (result.isEmpty()) {
+                    QMessageBox::warning(this, "Processing Result", 
+                                       "No content was processed. Please check your file selection.");
+                    return;
+                }
+
+                if (toClipboard) {
+                    QClipboard* clipboard = QApplication::clipboard();
+                    clipboard->setText(result);
+                    QMessageBox::information(this, "Success",
+                        QString("Content copied to clipboard successfully!\n\n"
+                                "Files processed: %1\nTotal size: %2")
+                        .arg(actualProcessedFiles).arg(totalSize));
+                } else {
+                    // Create a default filename
+                    QString defaultFileName = QFileInfo(currentPath).fileName() + "_processed.txt";
+                    QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+                    QString defaultFilePath = QDir(defaultPath).filePath(defaultFileName);
+
+                    QString savePath = QFileDialog::getSaveFileName(
+                        this,
+                        "Save Processed Code",
+                        defaultFilePath,
+                        "Text Files (*.txt);;Markdown Files (*.md);;All Files (*.*)",
+                        nullptr,
+                        QFileDialog::DontUseNativeDialog
+                    );
+
+                    if (!savePath.isEmpty()) {
+                        QFile file(savePath);
+                        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                            QTextStream out(&file);
+                            out << result;
+                            file.close();
+                            QMessageBox::information(this, "Success",
+                                QString("Files successfully processed and saved!\n\n"
+                                        "Files processed: %1\nTotal size: %2")
+                                .arg(actualProcessedFiles).arg(totalSize));
+                        } else {
+                            QMessageBox::critical(this, "Error",
+                                "Could not save the file: " + file.errorString());
+                        }
+                    }
+                }
+
+                dialog->deleteLater();
+            });
+        }
+    );
+
+    // Handle processing errors
+    connect(worker, &FileProcessingWorker::error, this, 
+        [this, dialog, worker](const QString& message) {
+            // Ensure UI updates happen on main thread
+            QMetaObject::invokeMethod(this, [this, dialog, worker, message]() {
+                // Clean up worker thread
+                if (workerThread) {
+                    workerThread->quit();
+                    workerThread->wait(1000);
+                    delete workerThread;
+                    workerThread = nullptr;
+                }
+                worker->deleteLater();
+                dialog->hide();
+                dialog->deleteLater();
+                
+                QMessageBox::critical(this, "Processing Error", message);
+            });
+        }
+    );
+
+    // Ensure proper cleanup if thread fails to start
+    connect(workerThread, &QThread::finished, worker, &QObject::deleteLater);
+    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+
+    // Start processing
+    connect(workerThread, &QThread::started, worker, &FileProcessingWorker::process);
+    
+    // Start the thread
+    try {
+        workerThread->start();
+        qDebug() << "Processing thread started successfully";
+    } catch (const std::exception& e) {
+        qCritical() << "Failed to start processing thread:" << e.what();
+        QMessageBox::critical(this, "Thread Error", 
+            "Could not start processing thread. Please try again.");
+        
+        // Cleanup
+        dialog->hide();
+        dialog->deleteLater();
+        
+        if (workerThread) {
+            delete workerThread;
+            workerThread = nullptr;
+        }
+        
+        worker->deleteLater();
+    }
+}
+
+void MainWindow::saveToClipboard()
+{
+    startFileProcessing(true);
+}
+
+void MainWindow::saveToFile()
+{
+    startFileProcessing(false);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    // Check if there's an active worker thread
+    if (workerThread && workerThread->isRunning()) {
+        // Prompt user about ongoing processing
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            this, 
+            "Ongoing Processing", 
+            "A file processing task is currently running. Do you want to stop it and close the application?",
+            QMessageBox::Yes | QMessageBox::No
+        );
+        
+        if (reply == QMessageBox::No) {
+            // Cancel the close event
+            event->ignore();
+            return;
+        }
+        
+        // Attempt to stop the thread
+        workerThread->quit();
+        
+        // Wait for the thread to terminate
+        if (!workerThread->wait(2000)) { // Wait up to 2 seconds
+            qWarning() << "Worker thread did not terminate gracefully. Attempting to terminate.";
+            workerThread->terminate(); // Last resort
+        }
+    }
+
+    // Cleanup any remaining resources
+    if (fileModel) {
+        delete fileModel;
+        fileModel = nullptr;
+    }
+
+    if (gitignoreWatcher) {
+        delete gitignoreWatcher;
+        gitignoreWatcher = nullptr;
+    }
+
+    // Clear selected files
+    selectedFiles.clear();
+
+    // Accept the close event
+    event->accept();
+
+    // Call base class implementation
+    QMainWindow::closeEvent(event);
+}
+
+=== MainWindow.h ===
+// MainWindow.h
+// This header defines our main application window and declares all its functionality.
+#pragma once
+
+#include <QMainWindow>
+#include <QString>
+#include <set>
+#include <QCloseEvent>  // Add this include
+
+// Forward declarations to reduce header dependencies
+class QTreeView;
+class QPushButton;
+class QVBoxLayout;
+class QFileSystemWatcher;
+class FileSystemModelWithGitIgnore;
+class ProcessingDialog;
+class QItemSelection;
+
+class MainWindow : public QMainWindow {
+    Q_OBJECT
+
+public:
+    explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
+
+protected:
+    // Add closeEvent method to handle window closing
+    void closeEvent(QCloseEvent* event) override;
+
+private slots:
+    void selectFolder();
+    void saveToFile();
+    void saveToClipboard();
+    void onGitIgnoreChanged();
+    void handleSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
+
+private:
+    void delayedInit();
+    void setupUI();
+    void expandDirectory(const QModelIndex& index, int depth);
+    QString processFiles();
+    void selectAllProcessableFiles(const QModelIndex& parentIndex);
+    void expandEntireDirectoryTree(const QModelIndex& parentIndex, int depth = 0);
+    void updateFileSelection(const QString& filePath, bool selected);
+
+    // UI Elements
+    QWidget *centralWidget{nullptr};
+    QVBoxLayout *mainLayout{nullptr};
+    QPushButton *selectFolderButton{nullptr};
+    QTreeView *fileTreeView{nullptr};
+    QPushButton *saveFileButton{nullptr};
+    QPushButton *saveClipboardButton{nullptr};
+    
+    // Model and data handling
+    FileSystemModelWithGitIgnore *fileModel{nullptr};
+    QFileSystemWatcher *gitignoreWatcher{nullptr};
+    QString currentPath;
+    std::set<QString> selectedFiles;
+    QThread* workerThread{nullptr};
+    void startFileProcessing(bool toClipboard);
+};
+
+=== ProcessingDialog.cpp ===
+#include "ProcessingDialog.h"
+#include <QVBoxLayout>
+#include <QProgressBar>
+#include <QLabel>
+#include <QDebug>
+
+ProcessingDialog::ProcessingDialog(QWidget* parent) 
+    : QDialog(parent, Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint) {
+    setModal(true);
+
+    mainLayout = new QVBoxLayout(this);
+    
+    // Main progress message
+    messageLabel = new QLabel("Processing files...", this);
+    messageLabel->setAlignment(Qt::AlignCenter);
+    mainLayout->addWidget(messageLabel);
+
+    // Current file being processed
+    currentFileLabel = new QLabel("Waiting to start...", this);
+    currentFileLabel->setAlignment(Qt::AlignLeft);
+    currentFileLabel->setWordWrap(true);
+    mainLayout->addWidget(currentFileLabel);
+
+    // Statistics label
+    statisticsLabel = new QLabel("Files processed: 0\nTotal size: 0 bytes", this);
+    statisticsLabel->setAlignment(Qt::AlignLeft);
+    mainLayout->addWidget(statisticsLabel);
+
+    // Progress bar
+    progressBar = new QProgressBar(this);
+    progressBar->setMinimum(0);
+    progressBar->setMaximum(100);
+    progressBar->setValue(0);
+    progressBar->setTextVisible(true);
+    mainLayout->addWidget(progressBar);
+
+    // Set a reasonable size for the dialog
+    setFixedSize(500, 200);
+    setWindowTitle("Processing");
+}
+
+void ProcessingDialog::setProgress(int current, int total) {
+    if (total <= 0) return;
+    
+    int percentage = (current * 100) / total;
+    progressBar->setValue(percentage);
+    messageLabel->setText(QString("Processing files... (%1 of %2)").arg(current).arg(total));
+    
+    qDebug() << "Progress:" << current << "of" << total;
+}
+
+void ProcessingDialog::setCurrentFile(const QString& filePath) {
+    QString displayPath = filePath;
+    int lastSlash = displayPath.lastIndexOf('/');
+    if (lastSlash == -1) lastSlash = displayPath.lastIndexOf('\\');
+    
+    if (lastSlash != -1) {
+        QString fileName = displayPath.mid(lastSlash + 1);
+        QString directory = displayPath.left(lastSlash);
+        currentFileLabel->setText(QString("Current file: %1\nIn: %2").arg(fileName).arg(directory));
+    } else {
+        currentFileLabel->setText(QString("Current file: %1").arg(displayPath));
+    }
+    
+    qDebug() << "Processing file:" << filePath;
+}
+
+QString ProcessingDialog::formatFileSize(qint64 size) const {
+    const char* units[] = {"bytes", "KB", "MB", "GB"};
+    int unitIndex = 0;
+    double fileSize = size;
+
+    while (fileSize >= 1024 && unitIndex < 3) {
+        fileSize /= 1024;
+        unitIndex++;
+    }
+
+    return QString("%1 %2")
+        .arg(fileSize, 0, 'f', unitIndex > 0 ? 2 : 0)
+        .arg(units[unitIndex]);
+}
+
+void ProcessingDialog::updateStatistics(int processedFiles, qint64 totalSize) {
+    m_processedFiles = processedFiles;
+    m_totalSize = totalSize;
+    statisticsLabel->setText(QString("Files processed: %1\nTotal size: %2")
+        .arg(processedFiles)
+        .arg(formatFileSize(totalSize)));
+    
+    qDebug() << "Statistics update - Files:" << processedFiles << "Size:" << formatFileSize(totalSize);
+}
+
+=== ProcessingDialog.h ===
+#pragma once
+
+#include <QDialog>
+#include <QString>
+
+class QProgressBar;
+class QLabel;
+class QVBoxLayout;
+
+class ProcessingDialog : public QDialog {
+    Q_OBJECT
+
+public:
+    explicit ProcessingDialog(QWidget* parent = nullptr);
+    int processedFiles() const { return m_processedFiles; }
+    qint64 totalSize() const { return m_totalSize; }
+    QString formatFileSize(qint64 size) const;
+
+public slots:
+    void setProgress(int current, int total);
+    void setCurrentFile(const QString& filePath);
+    void updateStatistics(int processedFiles, qint64 totalSize);
+
+private:
+    QVBoxLayout* mainLayout;
+    QLabel* messageLabel;
+    QLabel* currentFileLabel;
+    QLabel* statisticsLabel;
+    QProgressBar* progressBar;
+    int m_processedFiles = 0;
+    qint64 m_totalSize = 0;
+};
+
+
+=== README.md ===
+# Codebase Processor
+
+A **Qt-based C++** application for processing codebases into a single text file. It allows you to select a folder, choose which files to process based on customizable filters, and then either copy the processed content to your clipboard or save it to a single output file.
+
+## Features
+
+- Recursively scans a selected directory and its subdirectories for code files
+- Supports filtering files based on customizable patterns, including a `.gitignore` file if present
+- Provides a tree view UI to select individual files to include/exclude from processing
+- Concatenates the contents of selected files into a single output, with file paths as headers
+- Option to copy the output directly to clipboard or save to a file
+- Provides progress updates and statistics during processing
+- Cross-platform support (Windows, macOS, Linux)
+
+## Prerequisites
+
+- **Qt 6.8** or higher (adjust `CMAKE_PREFIX_PATH` in `CMakeLists.txt` if needed)
+- **CMake 3.16** or higher
+- A **C++17** compatible compiler (MSVC, GCC, Clang)
+- On Windows, a **Visual Studio Developer Command Prompt** to properly configure the build environment
+
+## Build Instructions
+
+### Automatic Build (Windows)
+
+1. Open a **Developer Command Prompt for Visual Studio**
+2. Run either `build_deploy_release.bat` for a Release build or `build_deploy_debug.bat` for a Debug build
+
+The batch file will:
+- Set up the Visual Studio build environment 
+- Create a `build` directory
+- Configure and build the project with CMake
+- Deploy the necessary Qt dependencies next to the executable
+
+You can find the final executable in `build\Release` or `build\Debug` depending on the selected build type.
+
+### Manual Build
+
+1. **Create a build directory**: `mkdir build` (or use your preferred build directory setup)
+2. **Configure the project with CMake**:
+   ```
+   cd build
+   cmake .. -DCMAKE_BUILD_TYPE=Release
+   ```
+   (Replace `Release` with `Debug` if you want a debug build)
+3. **Build the project**:
+   ```
+   cmake --build . --config Release
+   ```
+4. The compiled executable will be in the `Release` or `Debug` subfolder, depending on your build type.
+
+On Windows, you'll also need to run `windeployqt` to copy the necessary Qt dependencies next to the executable:
+```
+<path_to_qt>\bin\windeployqt.exe --release --no-translations --no-system-d3d-compiler Release\codebase_processor.exe  
+```
+(Adjust the path to `windeployqt.exe` and the executable as needed)
+
+## Code Structure
+```CPP_Codebase_Processor/
+├── CMakeLists.txt               # Build configuration file
+├── main.cpp                     # Application entry point
+├── MainWindow                   # Main application window
+│   ├── MainWindow.h            # Main window header
+│   └── MainWindow.cpp          # Main window implementation
+├── FileProcessingWorker         # Background processing worker
+│   ├── FileProcessingWorker.h    
+│   └── FileProcessingWorker.cpp
+├── FileSystemModelWithGitIgnore # Custom file system model
+│   ├── FileSystemModelWithGitIgnore.h
+│   └── FileSystemModelWithGitIgnore.cpp
+├── ProcessingDialog            # Progress dialog
+│   ├── ProcessingDialog.h
+│   └── ProcessingDialog.cpp
+├── resources.qrc              # Qt resource file
+├── README.md                  # Documentation
+└── Build Scripts
+    ├── build_deploy_debug.bat    # Debug build script
+    └── build_deploy_release.bat  # Release build script
+
+Class Hierarchy:
+MainWindow (QMainWindow)
+├── FileSystemModelWithGitIgnore (QFileSystemModel)
+├── FileProcessingWorker (QObject)
+└── ProcessingDialog (QDialog)
+The application is structured around these main components:
+
+MainWindow: The main UI that handles file selection and user interaction
+FileSystemModelWithGitIgnore: Manages the file system view with .gitignore support
+FileProcessingWorker: Handles file processing in a background thread
+ProcessingDialog: Shows progress during file processing
+
+The build system uses CMake with Qt 6.8 and requires C++17, with separate batch scripts for debug and release builds on Windows.
+```
+## Usage
+
+1. Launch the `codebase_processor` executable
+2. Click the **"Select Codebase Folder"** button and choose the root directory of the codebase you want to process
+3. The file tree will populate with all the code files found in the selected directory and its subdirectories
+   - Files ignored based on patterns in a `.gitignore` file (if present) or common binary/build output patterns will be unchecked by default
+   - You can manually check/uncheck files to include or exclude them from processing
+4. Click **"Copy to Clipboard"** to concatenate the contents of all checked files and copy the result to the clipboard
+   - OR click **"Save to File"** to save the concatenated content to a file instead
+5. A progress dialog will show the current processing status and statistics
+6. Once complete, the processed content will be in your clipboard or saved file
+
+## Contributing
+
+Contributions are welcome! If you encounter any issues or have suggestions for improvements, please open an issue or submit a pull request on the GitHub repository.
+
+## License
+
+This project is open-source and available under the [MIT License](LICENSE).
+
+#Note This written through a combination of hand-coding, Claude 3.5 Sonnet, and ChatGPT o1. After initial version was up and running, it was then run against itself and pushed back into AI to iteratively improve itself.
+
+
+=== build_deploy_debug.bat ===
+@echo off
+setlocal enabledelayedexpansion
+
+:: Check if VS Developer Command Prompt variables are set
+if not defined VSINSTALLDIR (
+    echo Setting up Visual Studio environment...
+    call "E:\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+)
+
+:: Create and enter build directory
+if not exist build mkdir build
+cd build
+
+:: Configure with CMake
+echo Configuring with CMake...
+cmake .. -DCMAKE_BUILD_TYPE=Debug
+
+:: Build the project
+echo Building the project...
+cmake --build . --config Debug
+
+:: Check if build was successful
+if %ERRORLEVEL% NEQ 0 (
+    echo Build failed!
+    pause
+    exit /b 1
+)
+
+echo Build completed successfully!
+echo You can find the executable in build\Debug\
+echo Don't forget to run the program from that directory!
+
+pause
+
+=== build_deploy_release.bat ===
+@echo off
+setlocal enabledelayedexpansion
+
+:: Check if VS Developer Command Prompt variables are set
+if not defined VSINSTALLDIR (
+    echo Setting up Visual Studio environment...
+    call "E:\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+)
+
+:: Create and enter build directory
+if not exist build mkdir build
+cd build
+
+:: Configure with CMake for a Release build
+echo Configuring with CMake for Release...
+cmake .. -DCMAKE_BUILD_TYPE=Release
+
+:: Build the project in Release mode
+echo Building the project in Release mode...
+cmake --build . --config Release
+
+:: Check if the build was successful
+if %ERRORLEVEL% NEQ 0 (
+    echo Build failed!
+    pause
+    exit /b 1
+)
+
+:: Optional: Manually run windeployqt in Release mode if needed.
+:: Only do this if you want to deploy again outside the built-in CMake steps.
+::
+:: echo Running windeployqt for Release...
+:: "E:\QT\6.8.2\msvc2022_64\bin\windeployqt.exe" --release ^
+::     --no-translations ^
+::     --no-system-d3d-compiler ^
+::     "Release\codebase_processor.exe"
+
+echo Build completed successfully!
+
+:: If you're using the default Visual Studio generator, the final exe is likely in build\Release.
+echo You can find the executable in build\Release\ (if using Visual Studio).
+echo If using Ninja or MinGW, the exe will be directly in build\.
+
+pause
+
+
+=== config/file_extensions.json ===
+{
+    "text_extensions": [
+        "html", "htm", "xhtml", 
+        "css", "scss", "sass", "less",
+        "js", "jsx", "ts", "tsx", 
+        "vue", "svelte", "razor",
+        "php", "php3", "php4", "php5", "php7", "php8",
+        "py", "pyw", "pyc", "pyd", "pyo",
+        "rb", "erb", "rdoc",
+        "java", "scala", "kt", "kts",
+        "cs", "vb", "vbs",
+        "go", "rs", "swift",
+        "pl", "pm", "t",
+        "lua", "moon",
+        "cpp", "cxx", "cc", "c", "c++", 
+        "h", "hpp", "hxx", "hh", 
+        "m", "mm", 
+        "asm", "s",
+        "sh", "bash", "zsh", 
+        "fish", "ps1", 
+        "bat", "cmd", 
+        "awk", "sed",
+        "json", "jsonc", 
+        "yaml", "yml", 
+        "toml", 
+        "ini", "cfg", "conf", 
+        "xml", "xsd", 
+        "md", "markdown", "mdown", "mkdn",
+        "rst", "rest", 
+        "adoc", "asciidoc",
+        "cmake", 
+        "gradle", "gradle.kts",
+        "pom.xml", 
+        "makefile", "mk",
+        "dockerfile",
+        "sql", "psql", 
+        "sqlite", 
+        "graphql",
+        "jsx", "tsx", 
+        "vue", 
+        "svelte", 
+        "slim", "haml",
+        "jinja", "j2", 
+        "mustache", 
+        "handlebars", "hbs",
+        "liquid", 
+        "pug", "jade",
+        "txt", 
+        "log", 
+        "editorconfig",
+        "gitignore", 
+        "gitattributes",
+        "coffee", "litcoffee",
+        "dart",
+        "elm", 
+        "fs", "fsx", 
+        "erl", "hrl",
+        "ex", "exs",
+        "hs", "lhs",
+        "r", "rmd",
+        "nim", "nims",
+        "cr", 
+        "clj", "cljs", "cljc",
+        "ipynb"
+    ],
+    "max_file_size_mb": 25,
+    "excluded_directories": [
+        ".vs", "build", "out", 
+        "Debug", "Release", 
+        "bin", "obj", "dist", 
+        ".git", ".svn", "CVS",
+        "node_modules", 
+        "bower_components",
+        "__pycache__",
+        ".idea", ".vscode", 
+        ".gradle", ".mvn",
+        ".next", ".nuxt",
+        "vendor", 
+        "target", ".svelte-kit"
+    ]
+}
+
+=== main.cpp ===
+// main.cpp
+// Application entry point with enhanced initialization and error handling
+
+#include <QApplication>
+#include <QMessageBox>
+#include <QDir>
+#include <QLoggingCategory>
+#include <QDateTime>
+#include <QStandardPaths>
+#include <QFile>
+#include <QTextStream>
+
+#include "MainWindow.h"
+
+// Custom message handler for logging
+void customMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+{
+    // Determine log file path
+    QString logPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(logPath); // Ensure log directory exists
+    QString logFilePath = QDir(logPath).filePath("codebase_processor.log");
+
+    // Open log file in append mode
+    QFile logFile(logFilePath);
+    if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        // Fallback if can't open log file
+        return;
+    }
+
+    QTextStream out(&logFile);
+    
+    // Format log message
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
+    QString logLevel;
+
+    // Determine log level
+    switch (type) {
+        case QtDebugMsg:
+            logLevel = "DEBUG";
+            break;
+        case QtInfoMsg:
+            logLevel = "INFO";
+            break;
+        case QtWarningMsg:
+            logLevel = "WARNING";
+            break;
+        case QtCriticalMsg:
+            logLevel = "CRITICAL";
+            break;
+        case QtFatalMsg:
+            logLevel = "FATAL";
+            break;
+    }
+
+    // Format log entry
+    QString logEntry = QString("%1 [%2] %3 (File: %4, Line: %5, Function: %6)")
+        .arg(timestamp, logLevel, msg, 
+             context.file ? context.file : "Unknown", 
+             QString::number(context.line),
+             context.function ? context.function : "Unknown");
+
+    // Write to log file
+    out << logEntry << "\n";
+    out.flush();
+
+    // If it's a critical or fatal message, also show a message box
+    if (type >= QtCriticalMsg) {
+        QMessageBox::critical(nullptr, "Application Error", msg);
+    }
+
+    // Default handler for console output (optional)
+    fprintf(stderr, "%s\n", logEntry.toUtf8().constData());
+}
+
+int main(int argc, char *argv[]) 
+{
+    // Install custom message handler before creating QApplication
+    qInstallMessageHandler(customMessageHandler);
+
+    // Create application with command-line argument support
+    QApplication app(argc, argv);
+
+    // Set application metadata
+    app.setApplicationName("Codebase Processor");
+    app.setApplicationVersion("1.0.0");
+    app.setOrganizationName("Codebase Tools");
+    app.setOrganizationDomain("kgromero.com");
+
+    // Set up application-wide styling (optional)
+   // app.setStyle("Fusion");  // Modern, cross-platform look
+
+    // Set window icon 
+    QIcon appIcon(":/app_icon.png");
+    if (!appIcon.isNull()) {
+        app.setWindowIcon(appIcon);
+    } else {
+        qWarning() << "Application icon could not be loaded";
+    }
+
+    // Exception handling for main window creation
+    try {
+        // Create main window
+        MainWindow window;
+        window.show();
+
+        // Run event loop and capture exit code
+        int exitCode = app.exec();
+
+        // Log application exit
+
+        return exitCode;
+    } 
+    catch (const std::exception& e) {
+        // Handle any standard exceptions
+        qCritical() << "Unhandled standard exception:" << e.what();
+        QMessageBox::critical(nullptr, "Critical Error", 
+            QString("An unexpected error occurred: %1\n\n"
+                    "The application will now close.").arg(e.what()));
+        return -1;
+    } 
+    catch (...) {
+        // Handle any other unexpected exceptions
+        qCritical() << "Unknown fatal error occurred";
+        QMessageBox::critical(nullptr, "Critical Error", 
+            "An unknown fatal error occurred. The application will now close.");
+        return -2;
+    }
 }
 
