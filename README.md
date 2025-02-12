@@ -2,6 +2,8 @@
 
 A **Qt-based C++** application for processing codebases into a single text file. It allows you to select a folder, choose which files to process based on customizable filters, and then either copy the processed content to your clipboard or save it to a single output file.
 
+**Note:** This written through a combination of hand-coding, Claude 3.5 Sonnet, ChatGPT o1/4o, and Cline. After initial version was up and running, it was then run against itself and pushed back into AI to iteratively improve itself.
+
 ## Features
 
 - Recursively scans a selected directory and its subdirectories for code files
@@ -103,12 +105,6 @@ The build system uses CMake with Qt 6.8 and requires C++17, with separate batch 
 5. A progress dialog will show the current processing status and statistics
 6. Once complete, the processed content will be in your clipboard or saved file
 
-## Contributing
-
-Contributions are welcome! If you encounter any issues or have suggestions for improvements, please open an issue or submit a pull request on the GitHub repository.
-
 ## License
 
 This project is open-source and available under the [MIT License](LICENSE).
-
-#Note This written through a combination of hand-coding, Claude 3.5 Sonnet, and ChatGPT o1. After initial version was up and running, it was then run against itself and pushed back into AI to iteratively improve itself.
