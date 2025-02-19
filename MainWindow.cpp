@@ -373,15 +373,19 @@ void MainWindow::startFileProcessing(bool toClipboard)
         [this, dialog, worker, toClipboard, processableFilesCount](const QString& result) {
             // Ensure UI updates happen on main thread
             QMetaObject::invokeMethod(this, [this, dialog, worker, toClipboard, result, processableFilesCount]() {
-                // Clean up worker thread
+                // Clean up dialog first
+                dialog->hide();
+                dialog->deleteLater();
+    
+                // Clean up worker and thread with proper order
+                worker->deleteLater();
                 if (workerThread) {
                     workerThread->quit();
-                    workerThread->wait(1000);
-                    delete workerThread;
-                    workerThread = nullptr;
+                    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+                    connect(workerThread, &QThread::finished, [this]() {
+                        workerThread = nullptr;
+                    });
                 }
-                worker->deleteLater();
-                dialog->hide();
 
                 // Get the final statistics
                 int actualProcessedFiles = dialog->processedFiles();
@@ -395,7 +399,18 @@ void MainWindow::startFileProcessing(bool toClipboard)
 
                 if (toClipboard) {
                     QClipboard* clipboard = QApplication::clipboard();
-                    clipboard->setText(result);
+                    
+                    // Set text in the regular clipboard
+                    clipboard->setText(result, QClipboard::Clipboard);
+                    
+                    // Also set it in the X11 primary selection for Linux
+                    if (clipboard->supportsSelection()) {
+                        clipboard->setText(result, QClipboard::Selection);
+                    }
+                    
+                    // Force event processing to ensure clipboard content is properly set
+                    QApplication::processEvents();
+                    
                     QMessageBox::information(this, "Success",
                         QString("Content copied to clipboard successfully!\n\n"
                                 "Files processed: %1\nTotal size: %2")
@@ -410,16 +425,22 @@ void MainWindow::startFileProcessing(bool toClipboard)
                         this,
                         "Save Processed Code",
                         defaultFilePath,
-                        "Text Files (*.txt);;Markdown Files (*.md);;All Files (*.*)",
-                        nullptr,
-                        QFileDialog::DontUseNativeDialog
+                        "Text Files (*.txt);;Markdown Files (*.md);;All Files (*.*)"
                     );
 
                     if (!savePath.isEmpty()) {
                         QFile file(savePath);
-                        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                            QTextStream out(&file);
-                            out << result;
+                        
+                        if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+                            // Set file permissions after opening
+                            file.setPermissions(QFile::ReadOwner | QFile::WriteOwner |
+                                              QFile::ReadUser | QFile::WriteUser |
+                                              QFile::ReadGroup | QFile::ReadOther);
+                            // Write UTF-8 BOM
+                            file.write("\xEF\xBB\xBF");
+                            // Write content as UTF-8
+                            file.write(result.toUtf8());
+                            file.flush();
                             file.close();
                             QMessageBox::information(this, "Success",
                                 QString("Files successfully processed and saved!\n\n"
@@ -442,16 +463,19 @@ void MainWindow::startFileProcessing(bool toClipboard)
         [this, dialog, worker](const QString& message) {
             // Ensure UI updates happen on main thread
             QMetaObject::invokeMethod(this, [this, dialog, worker, message]() {
-                // Clean up worker thread
-                if (workerThread) {
-                    workerThread->quit();
-                    workerThread->wait(1000);
-                    delete workerThread;
-                    workerThread = nullptr;
-                }
-                worker->deleteLater();
+                // Clean up dialog first
                 dialog->hide();
                 dialog->deleteLater();
+
+                // Clean up worker and thread with proper order
+                worker->deleteLater();
+                if (workerThread) {
+                    workerThread->quit();
+                    connect(workerThread, &QThread::finished, workerThread, &QObject::deleteLater);
+                    connect(workerThread, &QThread::finished, [this]() {
+                        workerThread = nullptr;
+                    });
+                }
                 
                 QMessageBox::critical(this, "Processing Error", message);
             });

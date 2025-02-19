@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Codebase Processor
+Comment=Process codebases into a single text file
+Exec=/mnt/SSD/repos/CPP_Codebase_Processor/build/codebase_processor
+Icon=/mnt/SSD/repos/CPP_Codebase_Processor/logo.png
+Path=/mnt/SSD/repos/CPP_Codebase_Processor/
+Terminal=false
+Categories=Development;Utility;
+Keywords=code;development;processor;
+StartupNotify=true
